@@ -1,0 +1,301 @@
+/* General Resets and Body Styling */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --background-color: #1A1A1A;    /* Dark charcoal chassis */
+    --surface-color: #2C2C2C;       /* The main "screen" area, slightly lighter */
+    --primary-color: #F5F5F5;       /* Light, readable text */
+    --secondary-color: #AAAAAA;     /* Dimmer text for labels */
+    --accent-color: #CC0000;         /* Refined Akai Red Accent */
+    --user-message-bg: #3A3A3A;      /* A distinct dark grey for user bubble */
+    --model-message-bg: #252525;      /* A slightly darker bubble for the model */
+    --font-family-main: 'Roboto', sans-serif;
+    --font-family-mono: 'Roboto Mono', monospace;
+}
+
+html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+
+body {
+    background-color: var(--background-color);
+    color: var(--primary-color);
+    font-family: var(--font-family-main);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* App Container */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    max-width: 800px;
+    background-color: var(--surface-color);
+    box-shadow: 0 4px 25px rgba(0, 0, 0, 0.5);
+    border-radius: 8px;
+    margin: 0 auto;
+    overflow: hidden;
+}
+
+/* Header */
+header {
+    background-color: #252525;
+    padding: 16px 24px;
+    border-bottom: 1px solid #444444;
+    text-align: center;
+}
+
+header h1 {
+    font-family: var(--font-family-mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+header p {
+    font-size: 0.9rem;
+    color: var(--secondary-color);
+}
+
+/* Creative Starters */
+.creative-starters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid #444444;
+    background-color: #212121;
+}
+
+.starter-button {
+    background-color: transparent;
+    color: var(--secondary-color);
+    border: 1px solid var(--secondary-color);
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-family: var(--font-family-main);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
+
+.starter-button:hover {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* Chat Window */
+.chat-window {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Scrollbar styling */
+.chat-window::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chat-window::-webkit-scrollbar-track {
+    background: var(--surface-color);
+}
+
+.chat-window::-webkit-scrollbar-thumb {
+    background-color: #555555;
+    border-radius: 4px;
+}
+
+
+/* Message Styling */
+.message {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    line-height: 1.5;
+    font-size: 1rem;
+    white-space: pre-wrap; /* Preserve whitespace and newlines */
+    word-wrap: break-word;
+}
+
+.message.user {
+    background-color: var(--user-message-bg);
+    color: var(--primary-color);
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+
+.message.model {
+    background-color: var(--model-message-bg);
+    color: var(--primary-color);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+    border: 1px solid #444444;
+}
+
+.message.error {
+    background-color: #4d1818;
+    color: #ffc2c2;
+    border: 1px solid #8b2b2b;
+    align-self: flex-start;
+}
+
+
+/* Input Area */
+.input-area {
+    display: flex;
+    align-items: flex-end; /* Align items to the bottom for when textarea grows */
+    padding: 16px 24px;
+    border-top: 1px solid #444444;
+    background-color: #252525;
+    gap: 12px;
+}
+
+.mic-button, .upload-button {
+    background-color: transparent;
+    border: 1px solid var(--secondary-color);
+    color: var(--secondary-color);
+    height: 48px;
+    width: 48px;
+    min-width: 48px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.mic-button:hover:not(:disabled),
+.upload-button:hover:not(:disabled) {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+}
+
+.mic-button.recording {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+    animation: pulse 1.5s infinite;
+}
+
+.mic-button:disabled,
+.upload-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(204, 0, 0, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(204, 0, 0, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(204, 0, 0, 0);
+    }
+}
+
+.input-area textarea {
+    flex-grow: 1;
+    background-color: #333333;
+    color: var(--primary-color);
+    border: 1px solid #555555;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: var(--font-family-main);
+    font-size: 1rem;
+    resize: none;
+    line-height: 1.5;
+    min-height: 48px;
+    max-height: 150px;
+    height: auto;
+    transition: height 0.2s ease;
+}
+
+.input-area textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(204, 0, 0, 0.3);
+}
+
+.input-area button[type="submit"] {
+    background-color: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0 24px;
+    height: 48px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.input-area button[type="submit"]:hover:not(:disabled) {
+    background-color: #A30000;
+}
+
+.input-area button[type="submit"]:disabled {
+    background-color: #444444;
+    color: #888888;
+    cursor: not-allowed;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    border-top: 3px solid var(--accent-color);
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+    .app-container {
+        border-radius: 0;
+        height: 100vh;
+        width: 100vw;
+    }
+
+    .chat-window {
+        padding: 16px;
+    }
+
+    .message {
+        max-width: 90%;
+    }
+
+    .input-area {
+        padding: 12px;
+    }
+}
