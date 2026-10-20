@@ -299,3 +299,11 @@ header p {
         padding: 12px;
     }
 }
+/* Hardening: key rotation status badge */
+.key-status {
+  font-family: "Roboto Mono", monospace;
+  font-size: 0.72rem;
+  opacity: 0.65;
+  margin-top: 0.35rem;
+  letter-spacing: 0.03em;
+}
