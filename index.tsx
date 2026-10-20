@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Chat, GenerateContentResponse, Part } from '@google/genai';
+import type { Part } from '@google/genai';
+import { atlasClient, atlasBlueprintRef, sanitizeInput } from './src/atlasClient';
+import { keyPool, redactSecrets } from './src/apiKeyPool';
 
 // The blueprint for Akai Atlas, our MPC production mentor.
 const akaiAtlasBlueprint = `
@@ -91,11 +93,14 @@ interface ChatMessage {
 }
 
 const App: React.FC = () => {
-    const [chat, setChat] = useState<Chat | null>(null);
+    const [ready, setReady] = useState<boolean>(false);
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
     const [userInput, setUserInput] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [isRecording, setIsRecording] = useState<boolean>(false);
+    const [keyCount, setKeyCount] = useState<number>(0);
+    const [activeKey, setActiveKey] = useState<string | null>(null);
+    const [showKeyPrompt, setShowKeyPrompt] = useState<boolean>(false);
     
     const chatWindowRef = useRef<HTMLDivElement>(null);
     const userInputRef = useRef<HTMLTextAreaElement>(null);
@@ -103,66 +108,79 @@ const App: React.FC = () => {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
 
+    // Register the system blueprint and initialize the hardened, key-rotating client.
     useEffect(() => {
-        const initChat = () => {
-            try {
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-                const chatSession = ai.chats.create({
-                    model: 'gemini-2.5-flash',
-                    config: {
-                        systemInstruction: akaiAtlasBlueprint,
-                        temperature: 0.7,
-                        topP: 0.95,
-                        topK: 50,
-                    },
-                });
-                setChat(chatSession);
-                setChatHistory([{
-                    role: 'model',
-                    text: "Greetings. How may I assist you with your MPC endeavors today?"
-                }]);
-            } catch (error) {
-                console.error("Failed to initialize chat:", error);
-                setChatHistory([{
-                    role: 'error',
-                    text: "Failed to initialize Akai Atlas. Please check your API key and refresh the page."
-                }]);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        initChat();
+        atlasBlueprintRef.value = akaiAtlasBlueprint;
+        keyPool.load();
+        setKeyCount(keyPool.size());
+
+        if (keyPool.ready) {
+            setReady(true);
+            setIsLoading(false);
+            setChatHistory([{
+                role: 'model',
+                text: "Greetings. How may I assist you with your MPC endeavors today?"
+            }]);
+        } else {
+            setIsLoading(false);
+            setShowKeyPrompt(true);
+            setChatHistory([{
+                role: 'error',
+                text: "No API keys are available in the secure pool. Enter a key below to unlock Akai Atlas — it is kept only in this browser session."
+            }]);
+        }
     }, []);
+
+    const handleStashKey = (raw: string) => {
+        if (keyPool.stashKey(raw)) {
+            setKeyCount(keyPool.size());
+            setReady(true);
+            setShowKeyPrompt(false);
+            setChatHistory(prev => [...prev.filter(m => m.role !== 'error'), {
+                role: 'model',
+                text: `Secure key added to the rotation pool (${keyPool.size()} key${keyPool.size() > 1 ? 's' : ''} active). Greetings — how may I assist you with your MPC endeavors today?`
+            }]);
+        } else {
+            setChatHistory(prev => [...prev, { role: 'error', text: "That does not look like a valid API key format. Please try again." }]);
+        }
+    };
 
     useEffect(() => {
         if (chatWindowRef.current) {
             chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
         }
     }, [chatHistory]);
-    
+
     const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setUserInput(e.target.value);
     };
 
     const sendTextMessage = async () => {
-        if (!userInput.trim() || isLoading || !chat) return;
+        if (!userInput.trim() || isLoading || !ready) return;
 
-        const currentInput = userInput;
-        const userMessage: ChatMessage = { role: 'user', text: currentInput };
-        
+        const sanitized = sanitizeInput(userInput);
+        const userMessage: ChatMessage = { role: 'user', text: sanitized.text };
+
         setChatHistory(prev => [...prev, userMessage]);
         setUserInput('');
-        setIsLoading(true);
 
+        if (!sanitized.ok) {
+            setChatHistory(prev => [...prev, { role: 'error', text: sanitized.reason ?? 'Invalid input.' }]);
+            return;
+        }
+
+        setIsLoading(true);
         try {
-            const response: GenerateContentResponse = await chat.sendMessage({ message: currentInput });
-            const modelMessage: ChatMessage = { role: 'model', text: response.text };
-            setChatHistory(prev => [...prev, modelMessage]);
+            const text = await atlasClient.sendMessage([{ text: sanitized.text }]);
+            atlasClient.recordUser(sanitized.text);
+            atlasClient.recordModel(text);
+            setActiveKey(atlasClient.activeKeyMasked);
+            setChatHistory(prev => [...prev, { role: 'model', text }]);
         } catch (error) {
-            console.error("Error sending message:", error);
+            console.error("Error sending message:", redactSecrets(String((error as Error)?.message ?? error)));
             const errorMessage: ChatMessage = {
                 role: 'error',
-                text: "An error occurred during our communication. Please try again."
+                text: "An error occurred during our communication. Keys were rotated and retried; please try again shortly."
             };
             setChatHistory(prev => [...prev, errorMessage]);
         } finally {
@@ -171,7 +189,7 @@ const App: React.FC = () => {
     };
     
     const sendAudioForAnalysis = async (audioBase64: string, mimeType: string, sourceName: string = 'Audio snippet') => {
-        if (!chat) return;
+        if (!ready) return;
         
         setIsLoading(true);
         setChatHistory(prev => [...prev, { role: 'user', text: `[${sourceName} sent for analysis...]` }]);
@@ -201,11 +219,14 @@ Deeply analyze the attached audio input. As Akai Atlas, perform a multi-faceted 
     *   Frame this as a direct suggestion for the user within their MPC workflow.`
             };
             
-            const response = await chat.sendMessage({ message: [textPart, audioPart] });
-            const modelMessage: ChatMessage = { role: 'model', text: response.text };
+            const text = await atlasClient.sendMessage([textPart, audioPart]);
+            atlasClient.recordUser(`[audio analysis: ${sourceName}]`);
+            atlasClient.recordModel(text);
+            setActiveKey(atlasClient.activeKeyMasked);
+            const modelMessage: ChatMessage = { role: 'model', text };
             setChatHistory(prev => [...prev, modelMessage]);
         } catch (error) {
-            console.error("Error analyzing audio:", error);
+            console.error("Error analyzing audio:", redactSecrets(String((error as Error)?.message ?? error)));
             const errorMessage: ChatMessage = { role: 'error', text: "Sorry, I was unable to analyze the audio. Please try again." };
             setChatHistory(prev => [...prev, errorMessage]);
         } finally {
@@ -232,10 +253,15 @@ Deeply analyze the attached audio input. As Akai Atlas, perform a multi-faceted 
     
     const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (!file || !chat) return;
+        if (!file || !ready) return;
     
         if (file.size > 10 * 1024 * 1024) { // 10MB limit
             setChatHistory(prev => [...prev, { role: 'error', text: "File is too large. Please select an audio file under 10MB."}]);
+            return;
+        }
+        const ALLOWED_MIME = /^audio\/(mpeg|mp3|wav|ogg|flac|m4a|aac|x-m4a|webm|mp4|vnd\.wave)$/i;
+        if (!ALLOWED_MIME.test(file.type)) {
+            setChatHistory(prev => [...prev, { role: 'error', text: `Unsupported file type "${redactSecrets(file.type) || 'unknown'}". Please use MP3, WAV, OGG, FLAC, M4A, or AAC.`}]);
             return;
         }
         
@@ -294,7 +320,33 @@ Deeply analyze the attached audio input. As Akai Atlas, perform a multi-faceted 
             <header>
                 <h1>Akai Atlas</h1>
                 <p>Your MPC Production Mentor</p>
+                {ready && (
+                    <p className="key-status" title="API keys rotate round-robin per request; cooled-down keys are skipped automatically.">
+                        🔐 Key pool: {keyCount} rotating · active: {activeKey ?? '—'}
+                    </p>
+                )}
             </header>
+            {showKeyPrompt && (
+                <form
+                    className="input-area"
+                    style={{ marginBottom: '0.5rem' }}
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        const el = (e.currentTarget.elements.namedItem('stashkey') as HTMLInputElement | null);
+                        if (el?.value) { handleStashKey(el.value); el.value = ''; }
+                    }}
+                >
+                    <input
+                        name="stashkey"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="Paste your Gemini API key (kept in this browser session only)"
+                        style={{ flex: 1, background: 'transparent', border: '1px solid var(--border, #444)', color: 'inherit', padding: '0.5rem' }}
+                    />
+                    <button type="submit">Add Key</button>
+                </form>
+            )}
             <div className="creative-starters">
                 <button className="starter-button" onClick={() => handleStarterClick("Create a 4-bar lo-fi hip-hop drum pattern.")}>Create Beat</button>
                 <button className="starter-button" onClick={() => handleStarterClick("Suggest a soulful chord progression in C minor.")}>Suggest Chords</button>
@@ -324,16 +376,16 @@ Deeply analyze the attached audio input. As Akai Atlas, perform a multi-faceted 
                     onChange={handleFileSelect}
                     style={{ display: 'none' }} 
                     accept="audio/*"
-                    disabled={isLoading || isRecording || !chat}
+                    disabled={isLoading || isRecording || !ready}
                 />
-                <button type="button" className={`mic-button ${isRecording ? 'recording' : ''}`} onClick={handleRecordClick} disabled={isLoading || !chat} aria-label={isRecording ? 'Stop recording' : 'Start recording'}>
+                <button type="button" className={`mic-button ${isRecording ? 'recording' : ''}`} onClick={handleRecordClick} disabled={isLoading || !ready} aria-label={isRecording ? 'Stop recording' : 'Start recording'}>
                     {isRecording ? (
                          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
                     ) : (
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
                     )}
                 </button>
-                <button type="button" className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={isLoading || isRecording || !chat} aria-label="Upload audio file">
+                <button type="button" className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={isLoading || isRecording || !ready} aria-label="Upload audio file">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                 </button>
                 <textarea
@@ -348,9 +400,9 @@ Deeply analyze the attached audio input. As Akai Atlas, perform a multi-faceted 
                     }}
                     placeholder="Ask Akai Atlas, or use the mic..."
                     rows={1}
-                    disabled={isLoading || isRecording || !chat}
+                    disabled={isLoading || isRecording || !ready}
                 />
-                <button type="submit" disabled={isLoading || isRecording || !chat || !userInput.trim()}>Send</button>
+                <button type="submit" disabled={isLoading || isRecording || !ready || !userInput.trim()}>Send</button>
             </form>
         </div>
     );
