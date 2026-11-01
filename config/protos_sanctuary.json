@@ -1,0 +1,7 @@
+{
+  "allowed_sources": [
+    "atlas-session:operator-dev",
+    "atlas-session:*"
+  ],
+  "_comment": "PROTOS-1 Sanctuary allowlist (PORT semantics). Source IDs come ONLY from verified server sessions; the wildcard entry admits dev-mode session sources. This file failing to load = deny-everything (fail closed)."
+}
